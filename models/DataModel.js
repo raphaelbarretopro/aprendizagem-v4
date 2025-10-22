@@ -345,8 +345,8 @@ class DataModel {
                     TURMA: row.TURMA,
                     faltasJustificadas: [], // Array de objetos {dia, valor}
                     faltasNaoJustificadas: [], // Array de objetos {dia, valor}
-                    atrasos: [], // Array para atrasos (implementação futura)
-                    horasAtraso: 0, // Total de horas de atraso (implementação futura)
+                    atrasosDias: [], // Array de dias (string) com atraso
+                    horasAtraso: 0, // Total de horas de atraso
                     totalHorasAusencia: 0, // Total de horas de ausência (implementação futura)
                     statusCounts: new Map() // contagem por DESCRICAO
                 });
@@ -354,6 +354,7 @@ class DataModel {
 
             const aluno = alunosPorRA.get(ra);
             const faltasValor = parseInt(row.FALTAS) || 0;
+            const frequenciaValor = parseInt(row.FREQUENCIA) || 0;
             const justificadaStr = (row.JUSTIFICADA || '').trim().toUpperCase();
             const dataStr = row.DATA || '';
             const statusRowRaw = (row.DESCRICAO || '').toString().trim();
@@ -384,6 +385,14 @@ class DataModel {
                         valor: faltasValor
                     });
                 }
+            }
+
+            // Lógica de atrasos: FREQUENCIA = 1, 2 ou 3
+            if (frequenciaValor === 1 || frequenciaValor === 2 || frequenciaValor === 3) {
+                if (dia) aluno.atrasosDias.push(dia);
+                if (frequenciaValor === 1) aluno.horasAtraso += 3;
+                else if (frequenciaValor === 2) aluno.horasAtraso += 2;
+                else if (frequenciaValor === 3) aluno.horasAtraso += 1;
             }
         });
 
@@ -419,6 +428,15 @@ class DataModel {
                 }
             });
 
+            // Formatar ATRASOS (DIAS) - dias separados por vírgula e espaço
+            const atrasosDiasStr = aluno.atrasosDias.filter(d => d).join(', ');
+
+            // Nº HORAS DE ATRASO - soma total
+            const numHorasAtraso = aluno.horasAtraso;
+
+            // TOTAL HORAS DE AUSÊNCIA NO CURSO = Nº FALTAS JUSTIFICADAS + Nº FALTAS NÃO JUSTIFICADAS + Nº HORAS DE ATRASO
+            const totalHorasAusencia = (numFaltasJustificadas || 0) + (numFaltasNaoJustificadas || 0) + (numHorasAtraso || 0);
+
             return {
                 TURMA: aluno.TURMA,
                 ALUNO: aluno.ALUNO,
@@ -428,9 +446,9 @@ class DataModel {
                 NUM_FALTAS_JUSTIFICADAS: numFaltasJustificadas,
                 FALTAS_NAO_JUSTIFICADAS_DIAS: diasFaltasNaoJustificadas,
                 NUM_FALTAS_NAO_JUSTIFICADAS: numFaltasNaoJustificadas,
-                ATRASOS_DIAS: '', // Vazio por enquanto
-                NUM_HORAS_ATRASO: '', // Vazio por enquanto
-                TOTAL_HORAS_AUSENCIA: '' // Vazio por enquanto
+                ATRASOS_DIAS: atrasosDiasStr,
+                NUM_HORAS_ATRASO: numHorasAtraso,
+                TOTAL_HORAS_AUSENCIA: totalHorasAusencia
             };
         });
 
