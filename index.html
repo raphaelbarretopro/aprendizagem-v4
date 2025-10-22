@@ -87,6 +87,46 @@
                     <small class="form-help">Turmas disponíveis para a empresa selecionada</small>
                 </div>
 
+                <!-- Campo 3.1: Status do Aluno -->
+                <div class="form-group" id="statusGroup" aria-disabled="true">
+                    <label class="form-label">
+                        <svg class="label-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <path d="m9 12 2 2 4-4"></path>
+                        </svg>
+                        Status do Aluno
+                    </label>
+                    <div class="checkbox-group disabled" id="statusCheckboxes">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="status-all" checked>
+                            <label for="status-all"><strong>(Selecionar Tudo)</strong></label>
+                        </div>
+                        <div class="checkbox-grid">
+                            <div class="checkbox-item">
+                                <input type="checkbox" class="status-option" id="status-cancelado" value="CANCELADO" checked>
+                                <label for="status-cancelado">Cancelado</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" class="status-option" id="status-desistente" value="DESISTENTE" checked>
+                                <label for="status-desistente">Desistente</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" class="status-option" id="status-matriculado" value="MATRICULADO" checked>
+                                <label for="status-matriculado">Matriculado</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" class="status-option" id="status-pendente" value="PENDENTE ESTÁGIO" checked>
+                                <label for="status-pendente">Pendente Estágio</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" class="status-option" id="status-reprovado" value="REPROVADO" checked>
+                                <label for="status-reprovado">Reprovado</label>
+                            </div>
+                        </div>
+                    </div>
+                    <small class="form-help">Filtra pelo campo "DESCRICAO" do arquivo</small>
+                </div>
+
                 <!-- Campo 4: Período de Datas -->
                 <div class="form-group">
                     <label for="dataRange" class="form-label">

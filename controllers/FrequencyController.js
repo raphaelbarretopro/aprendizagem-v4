@@ -9,6 +9,7 @@ class FrequencyController {
         this.selectedTurma = null;
         this.dateRange = null;
         this.flatpickrInstance = null;
+        this.ALL_TURMAS = '__ALL__';
 
         // Elementos DOM
         this.elements = {
@@ -18,6 +19,10 @@ class FrequencyController {
             empresaInput: document.getElementById('empresa'),
             empresaDropdown: document.getElementById('empresaDropdown'),
             turmaSelect: document.getElementById('turma'),
+            statusGroup: document.getElementById('statusGroup'),
+            statusCheckboxes: document.getElementById('statusCheckboxes'),
+            statusSelectAll: document.getElementById('status-all'),
+            statusOptions: null, // será populado no init
             dataRangeInput: document.getElementById('dataRange'),
             btnProcessar: document.getElementById('btnProcessar'),
             statusPanel: document.getElementById('statusPanel'),
@@ -35,6 +40,7 @@ class FrequencyController {
         this.setupFileUpload();
         this.setupAutocomplete();
         this.setupTurmaSelect();
+        this.setupStatusCheckboxes();
         this.setupFormSubmit();
     }
 
@@ -230,6 +236,12 @@ class FrequencyController {
         // Limpar select
         this.elements.turmaSelect.innerHTML = '<option value="">Selecione uma turma</option>';
 
+        // Adicionar opção "Todas as turmas"
+        const optAll = document.createElement('option');
+        optAll.value = this.ALL_TURMAS;
+        optAll.textContent = 'Todas as turmas';
+        this.elements.turmaSelect.appendChild(optAll);
+
         // Adicionar turmas
         turmas.forEach(turma => {
             const option = document.createElement('option');
@@ -240,6 +252,10 @@ class FrequencyController {
 
         // Habilitar select
         this.elements.turmaSelect.disabled = false;
+
+        // Habilitar grupo de status
+        this.elements.statusGroup.setAttribute('aria-disabled', 'false');
+        this.elements.statusCheckboxes.classList.remove('disabled');
     }
 
     /**
@@ -249,7 +265,7 @@ class FrequencyController {
         this.elements.turmaSelect.addEventListener('change', (e) => {
             this.selectedTurma = e.target.value;
 
-            if (this.selectedTurma) {
+            if (this.selectedTurma || this.selectedTurma === this.ALL_TURMAS) {
                 // Inicializar seletor de datas
                 this.initDatePicker();
             } else {
@@ -257,6 +273,28 @@ class FrequencyController {
                 this.destroyDatePicker();
                 this.elements.btnProcessar.disabled = true;
             }
+        });
+    }
+
+    /**
+     * Configura checkboxes de Status (Selecionar Tudo + opções)
+     */
+    setupStatusCheckboxes() {
+        // Capturar opções dinâmicas (todas com classe .status-option)
+        this.elements.statusOptions = Array.from(document.querySelectorAll('.status-option'));
+
+        // Selecionar Tudo
+        this.elements.statusSelectAll.addEventListener('change', (e) => {
+            const checked = e.target.checked;
+            this.elements.statusOptions.forEach(opt => opt.checked = checked);
+        });
+
+        // Desmarcar "Selecionar Tudo" quando alguma opção individual for alterada
+        this.elements.statusOptions.forEach(opt => {
+            opt.addEventListener('change', () => {
+                const allChecked = this.elements.statusOptions.every(o => o.checked);
+                this.elements.statusSelectAll.checked = allChecked;
+            });
         });
     }
 
@@ -335,9 +373,10 @@ class FrequencyController {
             // Filtrar dados
             const filtros = {
                 cnpj: this.selectedEmpresa.cnpj,
-                turma: this.selectedTurma,
+                turma: this.selectedTurma === this.ALL_TURMAS ? null : this.selectedTurma,
                 dataInicio: this.dateRange.inicio,
-                dataFim: this.dateRange.fim
+                dataFim: this.dateRange.fim,
+                statusList: this.getSelectedStatuses()
             };
 
             const dadosFiltrados = this.model.filtrarDados(filtros);
@@ -371,24 +410,33 @@ class FrequencyController {
     }
 
     /**
+     * Retorna lista de status selecionados; se "Selecionar Tudo" está marcado, retorna null (sem filtro)
+     */
+    getSelectedStatuses() {
+        if (this.elements.statusSelectAll.checked) return null;
+        const list = this.elements.statusOptions
+            .filter(opt => opt.checked)
+            .map(opt => opt.value);
+        return list; // pode ser [], o Model tratará como conjunto vazio (sem resultados)
+    }
+
+    /**
      * Exporta dados para arquivo Excel (.xlsx)
      */
     exportarCSV(dados) {
-        // Preparar dados para export
+        // Preparar dados para export com a nova estrutura
         const excelData = dados.map(aluno => ({
-            'RA': aluno.RA,
-            'Aluno': aluno.ALUNO,
-            'Curso': aluno.CURSO,
-            'Turma': aluno.TURMA,
-            'Empresa': aluno.EMPRESA,
-            'CNPJ': aluno.CNPJ_EMPRESA,
-            'Status': aluno.DESCRICAO,
-            'Data Início Turma': aluno.DTINICIO_TURMA,
-            'Total de Aulas': aluno.totalAulas,
-            'Total de Presenças': aluno.totalPresencas,
-            'Total de Faltas': aluno.totalFaltas,
-            'Faltas Justificadas': aluno.totalJustificadas,
-            'Percentual de Frequência': aluno.percentualFrequencia
+            'TURMA': aluno.TURMA,
+            'ALUNO': aluno.ALUNO,
+            'STATUS': aluno.STATUS,
+            'CURSO': aluno.CURSO,
+            'FALTAS JUSTIFICADAS (DIAS)': aluno.FALTAS_JUSTIFICADAS_DIAS,
+            'Nº FALTAS JUSTIFICADAS': aluno.NUM_FALTAS_JUSTIFICADAS,
+            'FALTAS NÃO JUSTIFICADAS (DIAS)': aluno.FALTAS_NAO_JUSTIFICADAS_DIAS,
+            'Nº FALTAS NÃO JUSTIFICADAS': aluno.NUM_FALTAS_NAO_JUSTIFICADAS,
+            'ATRASOS (DIAS)': aluno.ATRASOS_DIAS,
+            'Nº HORAS DE ATRASO': aluno.NUM_HORAS_ATRASO,
+            'TOTAL HORAS DE AUSÊNCIA NO CURSO': aluno.TOTAL_HORAS_AUSENCIA
         }));
 
         // Criar workbook e worksheet
@@ -397,19 +445,17 @@ class FrequencyController {
 
         // Ajustar largura das colunas
         const colWidths = [
-            { wch: 12 },  // RA
-            { wch: 35 },  // Aluno
-            { wch: 40 },  // Curso
-            { wch: 18 },  // Turma
-            { wch: 40 },  // Empresa
-            { wch: 20 },  // CNPJ
-            { wch: 15 },  // Status
-            { wch: 18 },  // Data Início Turma
-            { wch: 15 },  // Total de Aulas
-            { wch: 18 },  // Total de Presenças
-            { wch: 15 },  // Total de Faltas
-            { wch: 20 },  // Faltas Justificadas
-            { wch: 25 }   // Percentual de Frequência
+            { wch: 18 },  // TURMA
+            { wch: 35 },  // ALUNO
+            { wch: 18 },  // STATUS
+            { wch: 45 },  // CURSO
+            { wch: 30 },  // FALTAS JUSTIFICADAS (DIAS)
+            { wch: 22 },  // Nº FALTAS JUSTIFICADAS
+            { wch: 32 },  // FALTAS NÃO JUSTIFICADAS (DIAS)
+            { wch: 28 },  // Nº FALTAS NÃO JUSTIFICADAS
+            { wch: 20 },  // ATRASOS (DIAS)
+            { wch: 20 },  // Nº HORAS DE ATRASO
+            { wch: 32 }   // TOTAL HORAS DE AUSÊNCIA NO CURSO
         ];
         ws['!cols'] = colWidths;
 

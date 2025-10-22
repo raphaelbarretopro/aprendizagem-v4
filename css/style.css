@@ -178,6 +178,40 @@ body {
 }
 
 /* ============================================
+   Checkbox Group (Status do Aluno)
+   ============================================ */
+.checkbox-group {
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1rem;
+    background: #ffffff;
+}
+
+.checkbox-group.disabled {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.checkbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.5rem 1rem;
+    margin-top: 0.5rem;
+}
+
+.checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.checkbox-item input[type="checkbox"] {
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: var(--primary-color);
+}
+
+/* ============================================
    File Upload Styles
    ============================================ */
 .file-upload-wrapper {

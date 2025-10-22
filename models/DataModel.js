@@ -5,9 +5,39 @@
 class DataModel {
     constructor() {
         this.rawData = [];
-        this.empresasAPR = new Map(); // Map para armazenar empresas únicas do projeto APR
+        // Map por CNPJ normalizado -> { cnpj, nome (escolhido), aliases: Set<string> }
+        this.empresasAPR = new Map();
         this.turmasPorEmpresa = new Map(); // Map para armazenar turmas por empresa
         this.datasDisponiveis = new Set(); // Set para armazenar datas únicas
+    }
+
+    /**
+     * Normaliza CNPJ: mantém apenas dígitos (14 caracteres quando válido)
+     */
+    normalizeCNPJ(cnpj) {
+        if (cnpj === null || cnpj === undefined) return '';
+        return String(cnpj).replace(/\D/g, '');
+    }
+
+    /**
+     * Normaliza nome removendo espaços extras e padronizando capitalização básica
+     */
+    normalizeName(nome) {
+        if (!nome) return '';
+        // Remove múltiplos espaços e trim
+        const cleaned = String(nome).replace(/\s+/g, ' ').trim();
+        return cleaned;
+    }
+
+    /**
+     * Escolhe o melhor nome dentre aliases: regra simples pega o mais longo
+     */
+    chooseBestName(aliasesSet) {
+        let best = '';
+        aliasesSet.forEach(n => {
+            if (n && n.length > best.length) best = n;
+        });
+        return best;
     }
 
     /**
@@ -15,31 +45,80 @@ class DataModel {
      * @param {File} file - Arquivo CSV selecionado
      * @returns {Promise} - Promise com os dados processados
      */
-    loadCSV(file) {
-        return new Promise((resolve, reject) => {
-            Papa.parse(file, {
-                header: true,
-                skipEmptyLines: true,
-                encoding: 'UTF-8',
-                complete: (results) => {
-                    if (results.errors.length > 0) {
-                        reject(new Error('Erro ao processar o arquivo CSV: ' + results.errors[0].message));
-                        return;
-                    }
+    async loadCSV(file) {
+        try {
+            // Decodificar com fallback de encoding para evitar problemas de acentuação (�)
+            const csvText = await this.decodeCSVFile(file);
 
-                    this.rawData = results.data;
-                    this.processData();
-                    resolve({
-                        totalRegistros: this.rawData.length,
-                        empresasAPR: this.empresasAPR.size,
-                        turmas: this.turmasPorEmpresa.size
-                    });
-                },
-                error: (error) => {
-                    reject(new Error('Erro ao ler o arquivo: ' + error.message));
-                }
+            const results = Papa.parse(csvText, {
+                header: true,
+                skipEmptyLines: true
             });
+
+            if (results.errors && results.errors.length > 0) {
+                throw new Error('Erro ao processar o arquivo CSV: ' + results.errors[0].message);
+            }
+
+            this.rawData = results.data;
+            this.processData();
+            return {
+                totalRegistros: this.rawData.length,
+                empresasAPR: this.empresasAPR.size,
+                turmas: this.turmasPorEmpresa.size
+            };
+        } catch (error) {
+            throw new Error('Erro ao ler o arquivo: ' + error.message);
+        }
+    }
+
+    /**
+     * Lê arquivo como ArrayBuffer
+     */
+    readFileAsArrayBuffer(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error || new Error('Falha ao ler arquivo'));
+            reader.readAsArrayBuffer(file);
         });
+    }
+
+    /**
+     * Decodifica texto CSV com fallback para windows-1252 quando necessário
+     */
+    async decodeCSVFile(file) {
+        const buffer = await this.readFileAsArrayBuffer(file);
+
+        // Tentar UTF-8 primeiro
+        let text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+        if (!this.looksMojibaked(text)) {
+            return text;
+        }
+
+        // Fallback para Windows-1252 (ISO-8859-1 ampliado)
+        try {
+            const text1252 = new TextDecoder('windows-1252', { fatal: false }).decode(buffer);
+            return text1252;
+        } catch (e) {
+            // Como fallback adicional, tentar ISO-8859-1
+            try {
+                const textIso = new TextDecoder('iso-8859-1', { fatal: false }).decode(buffer);
+                return textIso;
+            } catch (_) {
+                // Se nada funcionar, retorna UTF-8 mesmo
+                return text;
+            }
+        }
+    }
+
+    /**
+     * Heurística simples para detectar mojibake (acentos quebrados)
+     */
+    looksMojibaked(str) {
+        if (!str) return false;
+        // U+FFFD (�) ou sequências típicas de mojibake como Ã©, Ã£, Ã³, Â
+        if (str.indexOf('\uFFFD') !== -1 || str.includes('�')) return true;
+        return /Ã.|Â/.test(str);
     }
 
     /**
@@ -51,22 +130,30 @@ class DataModel {
         this.datasDisponiveis.clear();
 
         this.rawData.forEach(row => {
-            const turma = (row.TURMA || '').trim();
-            const cnpj = (row.CNPJ_EMPRESA || '').trim();
-            const empresa = (row.EMPRESA || '').trim();
-            const data = (row.DATA || '').trim();
+            const turma = this.normalizeName(row.TURMA || '');
+            const cnpjRaw = row.CNPJ_EMPRESA || '';
+            const cnpj = this.normalizeCNPJ(cnpjRaw);
+            const empresa = this.normalizeName(row.EMPRESA || '');
+            const data = this.normalizeName(row.DATA || '');
 
             // Filtrar apenas empresas do Projeto Jovem Aprendiz (turma começa com APR)
-            if (turma.startsWith('APR') && cnpj && empresa) {
-                // Adicionar empresa ao Map (evita duplicatas)
+            if (turma.toUpperCase().startsWith('APR') && cnpj && empresa) {
+                // Registrar empresa por CNPJ com aliases de nomes
                 if (!this.empresasAPR.has(cnpj)) {
                     this.empresasAPR.set(cnpj, {
-                        cnpj: cnpj,
-                        nome: empresa
+                        cnpj,
+                        nome: empresa,
+                        aliases: new Set([empresa])
                     });
+                } else {
+                    const entry = this.empresasAPR.get(cnpj);
+                    entry.aliases.add(empresa);
+                    // Escolher melhor nome (o mais completo/mais longo)
+                    const best = this.chooseBestName(entry.aliases);
+                    entry.nome = best || entry.nome;
                 }
 
-                // Organizar turmas por CNPJ da empresa
+                // Organizar turmas por CNPJ da empresa (agrupadas por CNPJ normalizado)
                 if (!this.turmasPorEmpresa.has(cnpj)) {
                     this.turmasPorEmpresa.set(cnpj, new Set());
                 }
@@ -85,9 +172,13 @@ class DataModel {
      * @returns {Array} - Array de objetos com cnpj e nome
      */
     getEmpresasAPR() {
-        return Array.from(this.empresasAPR.values()).sort((a, b) => 
-            a.nome.localeCompare(b.nome)
-        );
+        // Retornar uma entrada por CNPJ com nome escolhido e todas aliases (para busca)
+        const list = Array.from(this.empresasAPR.values()).map(e => ({
+            cnpj: e.cnpj,
+            nome: e.nome || this.chooseBestName(e.aliases),
+            aliases: Array.from(e.aliases || [])
+        }));
+        return list.sort((a, b) => a.nome.localeCompare(b.nome));
     }
 
     /**
@@ -96,14 +187,20 @@ class DataModel {
      * @returns {Array} - Array de empresas filtradas
      */
     buscarEmpresas(termo) {
+        const todas = this.getEmpresasAPR();
         if (!termo || termo.trim() === '') {
-            return this.getEmpresasAPR();
+            return todas;
         }
 
         const termoLower = termo.toLowerCase().trim();
-        return this.getEmpresasAPR().filter(empresa => {
-            const nomeMatch = empresa.nome.toLowerCase().includes(termoLower);
-            const cnpjMatch = empresa.cnpj.includes(termoLower);
+        const termoDigits = termo.replace(/\D/g, '');
+
+        return todas.filter(empresa => {
+            // Match por nome principal ou aliases
+            const nomeMatch = empresa.nome.toLowerCase().includes(termoLower) ||
+                (empresa.aliases || []).some(alias => alias.toLowerCase().includes(termoLower));
+            // Match por CNPJ (apenas dígitos)
+            const cnpjMatch = termoDigits ? empresa.cnpj.includes(termoDigits) : false;
             return nomeMatch || cnpjMatch;
         });
     }
@@ -114,7 +211,8 @@ class DataModel {
      * @returns {Array} - Array de códigos de turma
      */
     getTurmasPorEmpresa(cnpj) {
-        const turmas = this.turmasPorEmpresa.get(cnpj);
+        const key = this.normalizeCNPJ(cnpj);
+        const turmas = this.turmasPorEmpresa.get(key);
         if (!turmas) return [];
         return Array.from(turmas).sort();
     }
@@ -159,16 +257,30 @@ class DataModel {
 
     /**
      * Filtra dados com base nos critérios selecionados
-     * @param {Object} filtros - Objeto com filtros {cnpj, turma, dataInicio, dataFim}
+     * @param {Object} filtros - Objeto com filtros {cnpj, turma, dataInicio, dataFim, statusList}
      * @returns {Array} - Array de registros filtrados
      */
     filtrarDados(filtros) {
-        const { cnpj, turma, dataInicio, dataFim } = filtros;
+        const { cnpj, turma, dataInicio, dataFim, statusList } = filtros;
+
+        // Preparar conjunto de status normalizados para comparação, se houver filtro
+        let statusSet = null;
+        if (Array.isArray(statusList)) {
+            statusSet = new Set(statusList.map(s => this.normalizeStatus(s)));
+            if (statusSet.size === 0) {
+                // Nenhum status selecionado -> retornar lista vazia
+                return [];
+            }
+        }
 
         return this.rawData.filter(row => {
             // Filtro por CNPJ
-            if (cnpj && row.CNPJ_EMPRESA !== cnpj) {
-                return false;
+            if (cnpj) {
+                const rowCnpj = this.normalizeCNPJ(row.CNPJ_EMPRESA || '');
+                const filtroCnpj = this.normalizeCNPJ(cnpj);
+                if (rowCnpj !== filtroCnpj) {
+                    return false;
+                }
             }
 
             // Filtro por Turma
@@ -189,8 +301,27 @@ class DataModel {
                 }
             }
 
+            // Filtro por Status (DESCRICAO)
+            if (statusSet) {
+                const rowStatus = this.normalizeStatus(row.DESCRICAO || '');
+                if (!statusSet.has(rowStatus)) {
+                    return false;
+                }
+            }
+
             return true;
         });
+    }
+
+    /**
+     * Normaliza status removendo diacríticos e colocando em maiúsculas
+     */
+    normalizeStatus(status) {
+        return String(status)
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .trim();
     }
 
     /**
@@ -212,46 +343,94 @@ class DataModel {
                     ALUNO: row.ALUNO,
                     CURSO: row.CURSO,
                     TURMA: row.TURMA,
-                    EMPRESA: row.EMPRESA,
-                    CNPJ_EMPRESA: row.CNPJ_EMPRESA,
-                    DESCRICAO: row.DESCRICAO,
-                    DTINICIO_TURMA: row.DTINICIO_TURMA,
-                    totalFaltas: 0,
-                    totalPresencas: 0,
-                    totalJustificadas: 0,
-                    aulas: []
+                    faltasJustificadas: [], // Array de objetos {dia, valor}
+                    faltasNaoJustificadas: [], // Array de objetos {dia, valor}
+                    atrasos: [], // Array para atrasos (implementação futura)
+                    horasAtraso: 0, // Total de horas de atraso (implementação futura)
+                    totalHorasAusencia: 0, // Total de horas de ausência (implementação futura)
+                    statusCounts: new Map() // contagem por DESCRICAO
                 });
             }
 
             const aluno = alunosPorRA.get(ra);
-            const faltas = parseInt(row.FALTAS) || 0;
-            const frequencia = parseInt(row.FREQUENCIA) || 0;
-            const justificadas = parseInt(row.JUSTIFICADA) || 0;
+            const faltasValor = parseInt(row.FALTAS) || 0;
+            const justificadaStr = (row.JUSTIFICADA || '').trim().toUpperCase();
+            const dataStr = row.DATA || '';
+            const statusRowRaw = (row.DESCRICAO || '').toString().trim();
+            const statusKey = this.normalizeStatus(statusRowRaw);
 
-            aluno.totalFaltas += faltas;
-            aluno.totalPresencas += frequencia;
-            aluno.totalJustificadas += justificadas;
+            // Contabilizar status
+            if (statusKey) {
+                const prev = aluno.statusCounts.get(statusRowRaw) || 0;
+                aluno.statusCounts.set(statusRowRaw, prev + 1);
+            }
 
-            aluno.aulas.push({
-                DATA: row.DATA,
-                MES: row.MES,
-                FALTAS: faltas,
-                FREQUENCIA: frequencia,
-                JUSTIFICADA: justificadas
-            });
+            // Extrair apenas o dia da data (DD/MM/YYYY -> DD)
+            const dia = dataStr.split('/')[0] || '';
+
+            // Verificar se FALTAS está entre 1 e 4
+            if (faltasValor >= 1 && faltasValor <= 4) {
+                // Verificar se é FALTA JUSTIFICADA
+                if (justificadaStr === 'FALTA JUSTIFICADA') {
+                    // Adicionar às faltas justificadas
+                    aluno.faltasJustificadas.push({
+                        dia: dia,
+                        valor: faltasValor
+                    });
+                } else {
+                    // Adicionar às faltas não justificadas
+                    aluno.faltasNaoJustificadas.push({
+                        dia: dia,
+                        valor: faltasValor
+                    });
+                }
+            }
         });
 
-        // Calcular percentual de frequência
+        // Processar e formatar os dados consolidados
         const relatorio = Array.from(alunosPorRA.values()).map(aluno => {
-            const totalAulas = aluno.aulas.length;
-            const percentualFrequencia = totalAulas > 0 
-                ? ((aluno.totalPresencas / totalAulas) * 100).toFixed(2) 
-                : '0.00';
+            // Formatar FALTAS JUSTIFICADAS (DIAS) - dias separados por vírgula e espaço
+            const diasFaltasJustificadas = aluno.faltasJustificadas
+                .map(f => f.dia)
+                .filter(dia => dia) // Remover dias vazios
+                .join(', ');
+
+            // Calcular Nº FALTAS JUSTIFICADAS - soma dos valores
+            const numFaltasJustificadas = aluno.faltasJustificadas
+                .reduce((sum, f) => sum + f.valor, 0);
+
+            // Formatar FALTAS NÃO JUSTIFICADAS (DIAS) - dias separados por vírgula e espaço
+            const diasFaltasNaoJustificadas = aluno.faltasNaoJustificadas
+                .map(f => f.dia)
+                .filter(dia => dia) // Remover dias vazios
+                .join(', ');
+
+            // Calcular Nº FALTAS NÃO JUSTIFICADAS - soma dos valores
+            const numFaltasNaoJustificadas = aluno.faltasNaoJustificadas
+                .reduce((sum, f) => sum + f.valor, 0);
+
+            // Determinar STATUS mais frequente (modo). Se empate, pega o primeiro inserido.
+            let statusFinal = '';
+            let maxCount = -1;
+            aluno.statusCounts.forEach((count, label) => {
+                if (count > maxCount) {
+                    maxCount = count;
+                    statusFinal = label;
+                }
+            });
 
             return {
-                ...aluno,
-                totalAulas,
-                percentualFrequencia: `${percentualFrequencia}%`
+                TURMA: aluno.TURMA,
+                ALUNO: aluno.ALUNO,
+                STATUS: statusFinal,
+                CURSO: aluno.CURSO,
+                FALTAS_JUSTIFICADAS_DIAS: diasFaltasJustificadas,
+                NUM_FALTAS_JUSTIFICADAS: numFaltasJustificadas,
+                FALTAS_NAO_JUSTIFICADAS_DIAS: diasFaltasNaoJustificadas,
+                NUM_FALTAS_NAO_JUSTIFICADAS: numFaltasNaoJustificadas,
+                ATRASOS_DIAS: '', // Vazio por enquanto
+                NUM_HORAS_ATRASO: '', // Vazio por enquanto
+                TOTAL_HORAS_AUSENCIA: '' // Vazio por enquanto
             };
         });
 
