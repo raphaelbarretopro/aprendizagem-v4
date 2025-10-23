@@ -424,11 +424,23 @@ class FrequencyController {
      * Exporta dados para arquivo Excel (.xlsx)
      */
     exportarCSV(dados) {
+        // Utilitário: converte índice de coluna (1-based) para letra Excel
+        const colToLetter = (colNum) => {
+            let letter = '';
+            while (colNum > 0) {
+                const mod = (colNum - 1) % 26;
+                letter = String.fromCharCode(65 + mod) + letter;
+                colNum = Math.floor((colNum - mod) / 26);
+            }
+            return letter;
+        };
+
         // Preparar dados para export com a nova estrutura
         const excelData = dados.map(aluno => ({
             'TURMA': aluno.TURMA,
             'ALUNO': aluno.ALUNO,
             'STATUS': aluno.STATUS,
+            'EMPRESA': aluno.EMPRESA,
             'CURSO': aluno.CURSO,
             'FALTAS JUSTIFICADAS (DIAS)': aluno.FALTAS_JUSTIFICADAS_DIAS,
             'Nº FALTAS JUSTIFICADAS': aluno.NUM_FALTAS_JUSTIFICADAS,
@@ -439,30 +451,140 @@ class FrequencyController {
             'TOTAL HORAS DE AUSÊNCIA NO CURSO': aluno.TOTAL_HORAS_AUSENCIA
         }));
 
-        // Criar workbook e worksheet
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.json_to_sheet(excelData);
+        const headers = excelData.length > 0 ? Object.keys(excelData[0]) : [];
+        const lastColLetter = colToLetter(headers.length || 12);
 
-        // Ajustar largura das colunas
-        const colWidths = [
+        // Criar workbook e worksheet em branco
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet([]);
+
+        // Títulos (linhas 1 a 3)
+        const titulo1 = 'SENAI - MARACANÃ';
+        const titulo2 = 'PROGRAMA DE APRENDIZAGEM INDUSTRIAL';
+        // Extrair MÊS/ANO do período selecionado
+        let mesAno = '';
+        if (this.dateRange && this.dateRange.inicio) {
+            const parts = (this.dateRange.inicio || '').split('/'); // DD/MM/YYYY
+            if (parts.length === 3) mesAno = `${parts[1]}/${parts[2]}`;
+        } else {
+            // Fallback: tentar pegar do intervalo do dataset
+            const datas = this.model.getDatasDisponiveis();
+            if (datas && datas.length > 0) {
+                const p = (datas[0] || '').split('/');
+                if (p.length === 3) mesAno = `${p[1]}/${p[2]}`;
+            }
+        }
+        const titulo3 = `Relatório de Frequência - Aprendizes - ${mesAno}`;
+
+        // Escrever títulos
+        XLSX.utils.sheet_add_aoa(ws, [[titulo1]], { origin: 'A1' });
+        XLSX.utils.sheet_add_aoa(ws, [[titulo2]], { origin: 'A2' });
+        XLSX.utils.sheet_add_aoa(ws, [[titulo3]], { origin: 'A3' });
+
+        // Adicionar dados a partir da linha 5 (linha 5 = header)
+        XLSX.utils.sheet_add_json(ws, excelData, { origin: 'A5', skipHeader: false });
+
+        // Ajustar largura das colunas (balanceadas para caber os títulos sem excesso de espaço)
+        ws['!cols'] = [
             { wch: 18 },  // TURMA
-            { wch: 35 },  // ALUNO
-            { wch: 18 },  // STATUS
-            { wch: 45 },  // CURSO
-            { wch: 30 },  // FALTAS JUSTIFICADAS (DIAS)
-            { wch: 22 },  // Nº FALTAS JUSTIFICADAS
-            { wch: 32 },  // FALTAS NÃO JUSTIFICADAS (DIAS)
-            { wch: 28 },  // Nº FALTAS NÃO JUSTIFICADAS
-            { wch: 20 },  // ATRASOS (DIAS)
-            { wch: 20 },  // Nº HORAS DE ATRASO
-            { wch: 32 }   // TOTAL HORAS DE AUSÊNCIA NO CURSO
+            { wch: 38 },  // ALUNO
+            { wch: 14 },  // STATUS
+            { wch: 36 },  // EMPRESA
+            { wch: 32 },  // CURSO
+            { wch: 26 },  // FALTAS JUSTIFICADAS (DIAS)
+            { wch: 20 },  // Nº FALTAS JUSTIFICADAS
+            { wch: 28 },  // FALTAS NÃO JUSTIFICADAS (DIAS)
+            { wch: 24 },  // Nº FALTAS NÃO JUSTIFICADAS
+            { wch: 18 },  // ATRASOS (DIAS)
+            { wch: 18 },  // Nº HORAS DE ATRASO
+            { wch: 34 }   // TOTAL HORAS DE AUSÊNCIA NO CURSO
         ];
-        ws['!cols'] = colWidths;
+
+        // Mesclar células para os títulos (A1:last, A2:last, A3:last)
+        ws['!merges'] = [
+            { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+            { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
+            { s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } }
+        ];
+
+        // Estilos (requer xlsx-js-style na página)
+    const centerBold = { alignment: { horizontal: 'center' }, font: { bold: true, sz: 12 } };
+    const centerBoldBig = { alignment: { horizontal: 'center' }, font: { bold: true, sz: 14 } };
+        const headerFill = { fill: { patternType: 'solid', fgColor: { rgb: 'FFE6F2FF' } }, font: { bold: true } };
+        const altFill = { fill: { patternType: 'solid', fgColor: { rgb: 'FFF5FAFF' } } };
+    const whiteFill = { fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFFFF' } } };
+
+        // Aplicar estilos títulos
+        ['A1', 'A2', 'A3'].forEach((addr, idx) => {
+            if (!ws[addr]) return;
+            ws[addr].s = Object.assign({}, idx === 0 ? centerBoldBig : centerBold, whiteFill);
+        });
+
+        // Estilizar header (linha 5)
+        for (let c = 1; c <= headers.length; c++) {
+            const cell = `${colToLetter(c)}5`;
+            if (ws[cell]) {
+                ws[cell].s = Object.assign({ alignment: { horizontal: 'center', vertical: 'center' } }, headerFill);
+            }
+        }
+
+        // Listras alternadas nas linhas de dados (a partir da linha 6)
+        const firstDataRow = 6;
+        const lastDataRow = 5 + excelData.length;
+        for (let r = firstDataRow; r <= lastDataRow; r++) {
+            const isAlt = (r - firstDataRow) % 2 === 0;
+            for (let c = 1; c <= headers.length; c++) {
+                const addr = `${colToLetter(c)}${r}`;
+                if (ws[addr]) {
+                    ws[addr].s = Object.assign({}, ws[addr].s || {}, isAlt ? altFill : whiteFill);
+                }
+            }
+        }
+
+        // Aplicar bordas finas em toda a tabela (header + dados)
+        const thinBorder = {
+            border: {
+                top: { style: 'thin', color: { rgb: 'FFB3B3B3' } },
+                bottom: { style: 'thin', color: { rgb: 'FFB3B3B3' } },
+                left: { style: 'thin', color: { rgb: 'FFB3B3B3' } },
+                right: { style: 'thin', color: { rgb: 'FFB3B3B3' } }
+            }
+        };
+        for (let r = 5; r <= lastDataRow; r++) {
+            for (let c = 1; c <= headers.length; c++) {
+                const addr = `${colToLetter(c)}${r}`;
+                if (ws[addr]) {
+                    ws[addr].s = Object.assign({}, ws[addr].s || {}, thinBorder);
+                }
+            }
+        }
+
+        // Desabilitar gridlines (exibição e impressão)
+        ws['!gridlines'] = false; // alguns apps respeitam esta flag
+        ws['!sheetViews'] = [{ showGridLines: false }]; // tentativa adicional para compatibilidade
+        ws['!printOptions'] = Object.assign({}, ws['!printOptions'] || {}, { gridLines: false });
+
+        // Aplicar preenchimento branco em área estendida para ocultar gridlines também fora da tabela
+        const extendToCol = 13; // até coluna M
+        const extendToRow = Math.max(lastDataRow + 10, 30); // pelo menos 10 linhas após dados
+        for (let r = 1; r <= extendToRow; r++) {
+            for (let c = 1; c <= extendToCol; c++) {
+                const addr = `${colToLetter(c)}${r}`;
+                if (!ws[addr]) {
+                    ws[addr] = { t: 's', v: '' }; // célula vazia com string
+                }
+                if (!ws[addr].s) {
+                    ws[addr].s = {};
+                }
+                // Se não tem fill definido, aplicar branco
+                if (!ws[addr].s.fill) {
+                    ws[addr].s.fill = { patternType: 'solid', fgColor: { rgb: 'FFFFFFFF' } };
+                }
+            }
+        }
 
         // Adicionar worksheet ao workbook
-        XLSX.utils.book_append_sheet(wb, ws, 'Relatório de Frequência');
-
-        // Gerar nome do arquivo
+        XLSX.utils.book_append_sheet(wb, ws, 'Relatório de Frequência');        // Gerar nome do arquivo
         const filename = `relatorio_frequencia_${this.selectedEmpresa.nome.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.xlsx`;
 
         // Fazer download do arquivo Excel

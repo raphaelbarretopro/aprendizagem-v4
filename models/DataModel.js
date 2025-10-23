@@ -256,6 +256,22 @@ class DataModel {
     }
 
     /**
+     * Obtém o primeiro valor definido entre várias possíveis chaves de coluna
+     * Útil para lidar com variações como FALTAS/FALTA/FALT e FREQUENCIA/FREQUENC
+     * @param {Object} row - Linha do CSV
+     * @param {Array<string>} candidates - Lista de nomes de coluna candidatos
+     * @returns {*} - Valor encontrado (ou undefined se nenhum)
+     */
+    getFirstField(row, candidates = []) {
+        for (const key of candidates) {
+            if (Object.prototype.hasOwnProperty.call(row, key) && row[key] !== undefined && row[key] !== null) {
+                return row[key];
+            }
+        }
+        return undefined;
+    }
+
+    /**
      * Filtra dados com base nos critérios selecionados
      * @param {Object} filtros - Objeto com filtros {cnpj, turma, dataInicio, dataFim, statusList}
      * @returns {Array} - Array de registros filtrados
@@ -341,6 +357,7 @@ class DataModel {
                 alunosPorRA.set(ra, {
                     RA: ra,
                     ALUNO: row.ALUNO,
+                    EMPRESA: row.EMPRESA,
                     CURSO: row.CURSO,
                     TURMA: row.TURMA,
                     faltasJustificadas: [], // Array de objetos {dia, valor}
@@ -353,9 +370,14 @@ class DataModel {
             }
 
             const aluno = alunosPorRA.get(ra);
-            const faltasValor = parseInt(row.FALTAS) || 0;
-            const frequenciaValor = parseInt(row.FREQUENCIA) || 0;
-            const justificadaStr = (row.JUSTIFICADA || '').trim().toUpperCase();
+            // Aceitar variações de nomes de colunas (algumas planilhas vêm truncadas)
+            const faltasRaw = this.getFirstField(row, ['FALTAS', 'FALTA', 'FALT', 'FALT.']);
+            const frequenciaRaw = this.getFirstField(row, ['FREQUENCIA', 'FREQUENC', 'FREQ']);
+            const justificadaRaw = this.getFirstField(row, ['JUSTIFICADA', 'JUSTIF', 'JUSTIFIC']);
+
+            const faltasValor = parseInt(faltasRaw) || 0;
+            const frequenciaValor = parseInt(frequenciaRaw) || 0;
+            const justificadaStr = (justificadaRaw || '').toString().trim().toUpperCase();
             const dataStr = row.DATA || '';
             const statusRowRaw = (row.DESCRICAO || '').toString().trim();
             const statusKey = this.normalizeStatus(statusRowRaw);
@@ -373,17 +395,28 @@ class DataModel {
             if (faltasValor >= 1 && faltasValor <= 4) {
                 // Verificar se é FALTA JUSTIFICADA
                 if (justificadaStr === 'FALTA JUSTIFICADA') {
-                    // Adicionar às faltas justificadas
-                    aluno.faltasJustificadas.push({
-                        dia: dia,
-                        valor: faltasValor
-                    });
+                    // Regra atualizada:
+                    // - "Nº FALTAS JUSTIFICADAS": somar 1 SOMENTE quando FALTAS == 4 e JUSTIFICADA == 'FALTA JUSTIFICADA'.
+                    // - "FALTAS JUSTIFICADAS (DIAS)": listar apenas os dias que atendem a FALTAS == 4 e JUSTIFICADA.
+                    if (faltasValor === 4) {
+                        aluno.faltasJustificadas.push({
+                            dia: dia,
+                            valor: 1
+                        });
+                    }
+                    // Se JUSTIFICADA mas FALTAS != 4, não contamos e não listamos o dia
                 } else {
-                    // Adicionar às faltas não justificadas
-                    aluno.faltasNaoJustificadas.push({
-                        dia: dia,
-                        valor: faltasValor
-                    });
+                    // FALTAS NÃO JUSTIFICADAS
+                    // Nova regra:
+                    // - Contabilizar e listar SOMENTE quando FALTAS == 4 E o campo JUSTIFICADA estiver vazio (sem informação).
+                    // - Nesse caso, somar valor 1 por dia e listar o dia em "FALTAS NÃO JUSTIFICADAS (DIAS)".
+                    // - Caso haja qualquer informação diferente de vazio em JUSTIFICADA, não contar como não justificada aqui.
+                    if (faltasValor === 4 && justificadaStr === '') {
+                        aluno.faltasNaoJustificadas.push({
+                            dia: dia,
+                            valor: 1
+                        });
+                    }
                 }
             }
 
@@ -434,13 +467,14 @@ class DataModel {
             // Nº HORAS DE ATRASO - soma total
             const numHorasAtraso = aluno.horasAtraso;
 
-            // TOTAL HORAS DE AUSÊNCIA NO CURSO = Nº FALTAS JUSTIFICADAS + Nº FALTAS NÃO JUSTIFICADAS + Nº HORAS DE ATRASO
-            const totalHorasAusencia = (numFaltasJustificadas || 0) + (numFaltasNaoJustificadas || 0) + (numHorasAtraso || 0);
+            // TOTAL HORAS DE AUSÊNCIA NO CURSO = (Nº FALTAS JUSTIFICADAS x 4) + (Nº FALTAS NÃO JUSTIFICADAS x 4) + (Nº HORAS DE ATRASO)
+            const totalHorasAusencia = (numFaltasJustificadas * 4) + (numFaltasNaoJustificadas * 4) + (numHorasAtraso || 0);
 
             return {
                 TURMA: aluno.TURMA,
                 ALUNO: aluno.ALUNO,
                 STATUS: statusFinal,
+                EMPRESA: aluno.EMPRESA,
                 CURSO: aluno.CURSO,
                 FALTAS_JUSTIFICADAS_DIAS: diasFaltasJustificadas,
                 NUM_FALTAS_JUSTIFICADAS: numFaltasJustificadas,

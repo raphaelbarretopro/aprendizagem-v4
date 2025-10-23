@@ -154,6 +154,23 @@ O relatório Excel (.xlsx) gerado contém as seguintes colunas separadas:
 - Faltas justificadas
 - Percentual de frequência
 
+### 🔎 Regras atualizadas
+
+- Nº FALTAS JUSTIFICADAS:
+   - Quando o campo FALTAS for igual a 4 e o campo JUSTIFICADA contiver a string "FALTA JUSTIFICADA", o valor somado será 1 por dia.
+   - Para valores de FALTAS diferentes de 4 (ainda que JUSTIFICADA), não soma (0).
+   - No relatório por aluno, o total representa a contagem de dias que atenderam a condição acima no período selecionado.
+- FALTAS JUSTIFICADAS (DIAS):
+   - Lista apenas os dias em que FALTAS == 4 e JUSTIFICADA == "FALTA JUSTIFICADA".
+ - Nº FALTAS NÃO JUSTIFICADAS:
+    - Soma 1 por dia quando FALTAS == 4 e o campo JUSTIFICADA estiver em branco (sem informação).
+    - Dias com qualquer valor em JUSTIFICADA (diferente de vazio) não entram nesta soma.
+ - FALTAS NÃO JUSTIFICADAS (DIAS):
+    - Lista apenas os dias em que FALTAS == 4 e JUSTIFICADA está vazia.
+
+ - TOTAL HORAS DE AUSÊNCIA NO CURSO:
+    - Calculado como: (Nº FALTAS JUSTIFICADAS × 4) + (Nº FALTAS NÃO JUSTIFICADAS × 4) + (Nº HORAS DE ATRASO).
+
 ## 🤝 Suporte
 
 Para questões ou problemas, verifique:
