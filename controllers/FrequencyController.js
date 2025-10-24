@@ -316,9 +316,24 @@ class FrequencyController {
             maxDate: intervalo.max,
             onChange: (selectedDates) => {
                 if (selectedDates.length === 2) {
+                    // Garantir que as duas datas pertençam ao mesmo mês e ano
+                    const d1 = selectedDates[0];
+                    const d2 = selectedDates[1];
+
+                    if (d1.getMonth() !== d2.getMonth() || d1.getFullYear() !== d2.getFullYear()) {
+                        // Mensagem não bloqueante e limpar seleção
+                        this.showTimedAlert('Por favor selecione um período dentro do mesmo mês (ex: 01/08/2025 a 31/08/2025).', 5000);
+                        // limpar seleção no flatpickr e no input
+                        try { this.flatpickrInstance.clear(); } catch (e) {}
+                        this.elements.dataRangeInput.value = '';
+                        this.dateRange = null;
+                        this.elements.btnProcessar.disabled = true;
+                        return;
+                    }
+
                     this.dateRange = {
-                        inicio: this.model.formatDate(selectedDates[0]),
-                        fim: this.model.formatDate(selectedDates[1])
+                        inicio: this.model.formatDate(d1),
+                        fim: this.model.formatDate(d2)
                     };
                     this.elements.btnProcessar.disabled = false;
                 } else {
