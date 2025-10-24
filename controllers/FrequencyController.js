@@ -400,7 +400,8 @@ class FrequencyController {
             this.exportarCSV(resultado.relatorio);
 
             this.hideStatus();
-            alert(`Relatório gerado com sucesso!\n\nTotal de alunos: ${resultado.totalAlunos}\nTotal de registros: ${resultado.totalRegistros}`);
+            // Mostrar mensagem não bloqueante que fecha automaticamente após 5 segundos
+            this.showTimedAlert(`Relatório gerado com sucesso!\n\nTotal de alunos: ${resultado.totalAlunos}\nTotal de registros: ${resultado.totalRegistros}`, 5000);
 
         } catch (error) {
             this.hideStatus();
@@ -620,6 +621,111 @@ class FrequencyController {
     hideStatus() {
         this.elements.statusPanel.style.display = 'none';
         this.elements.btnProcessar.disabled = false;
+    }
+
+    /**
+     * Mostra uma mensagem temporária (não bloqueante) que fecha automaticamente após `duration` ms
+     * message pode conter quebras de linha (\n) — serão renderizadas como <br>
+     */
+    showTimedAlert(message, duration = 5000) {
+        // Implementação robusta que NÃO usa alert() como fallback.
+        // Cria um container único para toasts e adiciona a notificação dentro dele.
+        try {
+            // Container reutilizável
+            let container = document.getElementById('fv-toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'fv-toast-container';
+                Object.assign(container.style, {
+                    position: 'fixed',
+                    top: '18px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: '9999',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    alignItems: 'center',
+                    pointerEvents: 'none' // permite clicar através, toasts individuais podem ser pointerEvents:auto'
+                });
+                document.body.appendChild(container);
+            }
+
+            // Criar toast
+            const toast = document.createElement('div');
+            toast.className = 'timed-alert';
+            // Escapar < para evitar injeção e manter quebras de linha
+            const safe = String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            toast.innerHTML = safe.replace(/\n/g, '<br>');
+
+            Object.assign(toast.style, {
+                background: '#0b74da',
+                color: '#fff',
+                padding: '12px 18px',
+                borderRadius: '8px',
+                boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
+                maxWidth: '920px',
+                width: 'auto',
+                minWidth: '240px',
+                textAlign: 'center',
+                fontWeight: '600',
+                lineHeight: '1.4',
+                opacity: '1',
+                transition: 'opacity 0.35s ease',
+                pointerEvents: 'auto'
+            });
+
+            // Adicionar botão de fechar rápido (opcional)
+            const closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.innerText = '×';
+            Object.assign(closeBtn.style, {
+                position: 'absolute',
+                top: '6px',
+                right: '8px',
+                background: 'transparent',
+                border: 'none',
+                color: 'rgba(255,255,255,0.9)',
+                fontSize: '18px',
+                cursor: 'pointer',
+                padding: '0',
+                lineHeight: '1'
+            });
+
+            // Wrapper para posicionar relativo e permitir botão
+            const wrapper = document.createElement('div');
+            Object.assign(wrapper.style, {
+                position: 'relative',
+                display: 'inline-block'
+            });
+            wrapper.appendChild(toast);
+            wrapper.appendChild(closeBtn);
+
+            container.appendChild(wrapper);
+
+            // Função que remove o toast com fade
+            const removeToast = () => {
+                try {
+                    wrapper.style.opacity = '0';
+                    setTimeout(() => {
+                        try { if (wrapper && wrapper.parentNode) wrapper.parentNode.removeChild(wrapper); } catch (e) {}
+                    }, 380);
+                } catch (e) { try { if (wrapper && wrapper.parentNode) wrapper.parentNode.removeChild(wrapper); } catch (err) {} }
+            };
+
+            // Fechar ao clicar no botão
+            closeBtn.addEventListener('click', removeToast);
+
+            // Remover após duration (fallback garante remoção)
+            const tRem = setTimeout(removeToast, duration);
+
+            // Guardar timer para possível limpeza
+            wrapper._timer = tRem;
+
+        } catch (err) {
+            // Se falhar, apenas registrar — não usar alert() para evitar modal bloqueante
+            console.error('showTimedAlert falhou:', err, message);
+        }
     }
 
     /**
